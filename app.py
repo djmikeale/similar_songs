@@ -13,13 +13,14 @@ def get_conn():
 
 cached_sql = f"""
         SELECT
-            track_name,
-            artists,
-            track_artist,
-            track_id,
-            bpm,
-            genres,
-            preview_url
+        track_name,
+        artists,
+        track_artist,
+        track_id,
+        bpm,
+        genres,
+        preview_url,
+        key
         FROM '{source}'
     """
 
@@ -42,13 +43,22 @@ track = st.selectbox(
     label_visibility="hidden"
 )
 
-
+mix_mode = None
 if(track):
-    mix_mode = st.segmented_control(
-        "Filter by mix mode",
-        ["perfect", "-1", "+1", "energy_boost", "scale_swap"]
+    mix_mode_map = {
+        "✔️ perfect": "perfect",
+        "➕ -1": "-1",
+        "➖ +1 ": "+1",
+        "🚀 energy_boost": "energy_boost",
+        "🔃 scale_swap": "scale_swap"
+    }
+    selected_label = st.segmented_control(
+        "Select mix mode",
+        list(mix_mode_map.keys()),
+        width="stretch",
     )
-
+    if selected_label:
+        mix_mode = mix_mode_map[selected_label]
 # ------------------------
 # Query construction
 # ------------------------
@@ -56,35 +66,68 @@ if(track):
 query = f"""
 WITH selected_track AS (
     SELECT
-        bpm AS selected_track_bpm
+        bpm AS selected_track_bpm,
+        key AS selected_key
     FROM '{source}'
     {f"WHERE track_artist = ?" if track else ""}
     LIMIT 1
+),
+harmonic AS (
+    WITH keys AS (SELECT k FROM range(1,13) t(k)),
+    m AS (
+        SELECT
+            k,
+            dm,
+            CAST(k AS VARCHAR) || dm AS key
+        FROM keys
+        CROSS JOIN (SELECT UNNEST(['d','m']) AS dm)
+    )
+    SELECT
+        key AS input_key,
+        key AS perfect_mix,
+        CAST(k % 12 + 1 AS VARCHAR) || dm AS plus_1,
+        CAST(CASE WHEN k = 1 THEN 12 ELSE k - 1 END AS VARCHAR) || dm AS minus_1,
+        CAST(k % 12 + 2 AS VARCHAR) || dm AS energy_boost,
+        CAST(k AS VARCHAR) || CASE WHEN dm = 'm' THEN 'd' ELSE 'm' END AS scale_swap
+    FROM m
 ),
 candidates AS (
     SELECT
         artists,
         track_name as track,
         bpm,
+        key,
         'https://open.spotify.com/track/' || track_id as spotify_url,
         preview_url[:-38] as preview_url, -- remove query param
         genres,
         ABS(bpm - (SELECT selected_track_bpm FROM selected_track)) AS tempo_diff
     FROM '{source}'
 )
-SELECT *
-FROM candidates
-ORDER BY
-    tempo_diff ASC
+SELECT
+    c.*
+FROM candidates c
+
+{f"""
+JOIN selected_track s ON TRUE
+JOIN harmonic h ON h.input_key = s.selected_key
+WHERE
+    c.key =
+    CASE '{mix_mode}'
+        WHEN 'perfect' THEN h.perfect_mix
+        WHEN '+1' THEN h.plus_1
+        WHEN '-1' THEN h.minus_1
+        WHEN 'energy_boost' THEN h.energy_boost
+        WHEN 'scale_swap' THEN h.scale_swap
+    END
+""" if mix_mode else ""}
+
+ORDER BY tempo_diff
 LIMIT 20
 """
 
 
 # ------------------------
 # Results
-# ------------------------
-# ------------------------
-# Results (auto-run)
 # ------------------------
 
 if track:
@@ -93,12 +136,15 @@ if track:
     if res.empty:
         st.warning("No matches found.")
     else:
+        st.caption(
+            f"🎼 Selected key: **{res.iloc[0]['key']}** · Mode: **{mix_mode}**"
+        )
+
         event = st.dataframe(
-            res[["artists", "track", "bpm", "spotify_url", "preview_url", "genres"]],
+            res[["artists", "track", "key", "bpm", "spotify_url", "preview_url", "genres"]],
             column_config={
                 "spotify_url": st.column_config.LinkColumn(
                     label="Spotify",
-                    help="Link to the track on Spotify",
                     display_text="🔗"
                 )
             },
@@ -107,13 +153,11 @@ if track:
             on_select="rerun",
         )
 
-if(track):
-    if event.selection.cells:
-        row_idx = event.selection.cells[0][0]
-        preview_url = res.iloc[row_idx]["preview_url"]
-
-        if preview_url:
-            st.audio(preview_url, autoplay=True)
+        if event.selection.cells:
+            row_idx = event.selection.cells[0][0]
+            preview = res.iloc[row_idx]["preview_url"]
+            if preview:
+                st.audio(preview, autoplay=True)
 
 with st.expander("Debug info"):
     if(track):
