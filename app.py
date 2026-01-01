@@ -46,19 +46,18 @@ track = st.selectbox(
 mix_mode = None
 if(track):
     mix_mode_map = {
-        "✔️ perfect": "perfect",
-        "➕ -1": "-1",
-        "➖ +1 ": "+1",
-        "🚀 energy_boost": "energy_boost",
-        "🔃 scale_swap": "scale_swap"
+         "perfect":"✔️ perfect",
+         "-1":"➕ -1",
+         "+1":"➖ +1 ",
+         "energy_boost":"🚀 energy_boost",
+         "scale_swap":"🔃 scale_swap"
     }
-    selected_label = st.segmented_control(
+    mix_mode = st.segmented_control(
         "Select mix mode",
-        list(mix_mode_map.keys()),
+        options=mix_mode_map.keys(),
+        format_func=lambda mix_mode: mix_mode_map[mix_mode],
         width="stretch",
     )
-    if selected_label:
-        mix_mode = mix_mode_map[selected_label]
 # ------------------------
 # Query construction
 # ------------------------
@@ -73,13 +72,13 @@ WITH selected_track AS (
     LIMIT 1
 ),
 harmonic AS (
-    WITH keys AS (SELECT k FROM range(1,13) t(k)),
+    WITH
     m AS (
         SELECT
             k,
             dm,
-            CAST(k AS VARCHAR) || dm AS key
-        FROM keys
+            k || dm AS key
+        FROM range(1,13) t(k)
         CROSS JOIN (SELECT UNNEST(['d','m']) AS dm)
     )
     SELECT
