@@ -1,13 +1,11 @@
 [project]
-name = "dnb-similarity"
+name = "similar_songs"
 version = "0.1.0"
 requires-python = ">=3.10"
 
 dependencies = [
     "streamlit>=1.32",
     "duckdb>=0.10",
-    "pandas>=2.0",
-    "rapidfuzz>=3.14.3",
 ]
 
 [tool.uv]

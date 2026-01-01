@@ -1,9 +1,8 @@
 # app.py
 import streamlit as st
 import duckdb
-import pandas as pd
 
-st.set_page_config(page_title="Next stop Uranus", page_icon="🚀")
+st.set_page_config(page_title="Next stop Outer Space", page_icon="🚀", layout="wide")
 
 source = "dnb.parquet"
 
@@ -46,11 +45,11 @@ track = st.selectbox(
 mix_mode = None
 if(track):
     mix_mode_map = {
-         "perfect":"✔️ perfect",
+         "perfect":"✔️ Perfect",
          "minus_1":"➖ -1",
          "plus_1":"➕ +1 ",
-         "energy_boost":"🚀 energy_boost",
-         "scale_swap":"🔃 scale_swap"
+         "energy_boost":"🚀 Energy Boost",
+         "scale_swap":"🔃 Scale swap"
     }
     mix_mode = st.segmented_control(
         "Select mix mode",
@@ -69,10 +68,12 @@ with
         *,
         --input key indicates musical key. 0 = C, 1 = C♯/D♭, 2 = D, ..., 11 = B
         --transform into Camelot notation for easier DJing
-        map(
-            [0,1, 2,3, 4,5,6,7,8, 9,10,11],
-            [8,3,10,5,12,7,2,9,4,11, 6, 1]
-        )[key[:-2]::int] || case when key[-1:] = 'm' then 'A' else 'B' end AS camelot_key
+        map{{
+            0:8, 1:3, 2:10, 3:5,
+            4:12, 5:7, 6:2, 7:9,
+            8:4, 9:11, 10:6, 11:1}}[key[:-2]::int]
+        || case when key[-1:] = 'm' then 'A' else 'B' end
+        AS camelot_key
         from '{source}'),
 
     selected_track as (
@@ -86,12 +87,14 @@ with
     ),
     harmonic as (
         select
-            k || dm as input_key,
-            k || dm as perfect,
-            k % 12 + 1 || dm as plus_1,
-            case when k = 1 then 12 else k - 1 end || dm as minus_1,
-            k % 12 + 2 || dm as energy_boost,
-            k || case when dm = 'A' then 'B' else 'A' end as scale_swap
+            k || dm as in_key,
+            MAP {{
+              'perfect': k || dm,
+              'plus_1': k % 12 + 1 || dm,
+              'minus_1': case when k = 1 then 12 else k - 1 end || dm,
+              'energy_boost': k % 12 + 2 || dm,
+              'scale_swap': k || case when dm = 'A' then 'B' else 'A' end
+            }} as kv_out_key
         from range(1, 13) t(k)
         cross join (select unnest(['A', 'B']) as dm)
     ),
@@ -108,21 +111,9 @@ with
         join selected_track s on true
 
         {f"""
-        join harmonic h on h.input_key = s.selected_key
+        join harmonic h on h.in_key = s.selected_key
         where
-            camelot_key = case
-                '{mix_mode}'
-                when 'perfect'
-                then h.perfect
-                when 'plus_1'
-                then h.plus_1
-                when 'minus_1'
-                then h.minus_1
-                when 'energy_boost'
-                then h.energy_boost
-                when 'scale_swap'
-                then h.scale_swap
-            end
+            camelot_key = h.kv_out_key['{mix_mode}']
             --we always wanna keep the selected track in results
             or selected_track_artist = track_artist
         """ if mix_mode else ""}
@@ -135,13 +126,6 @@ select *
 from final
 """
 
-
-with st.expander("Debug info"):
-    if(track):
-        st.write("debug: query:", query)
-        st.write("debug: params:", str([track]))
-        #st.write(event.selection)
-
 # ------------------------
 # Results
 # ------------------------
@@ -153,7 +137,7 @@ if track:
         st.warning("No matches found.")
     else:
         event = st.dataframe(
-            res[["artists", "track", "camelot_key", "bpm", "spotify_url", "preview_url", "genres"]],
+            res[["artists", "track", "camelot_key", "bpm", "genres", "spotify_url", "preview_url", ]],
             column_config={
                 "camelot_key":"Key",
                 "track":"Track",
@@ -175,3 +159,9 @@ if track:
             preview = res.iloc[row_idx]["preview_url"]
             if preview:
                 st.audio(preview, autoplay=True)
+
+with st.expander("Debug info"):
+    if(track):
+        st.write("debug: query:", str(query))
+        st.write("debug: params:", str([track]))
+        st.write(event.selection)
